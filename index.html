@@ -1,0 +1,448 @@
+# index.html
+行事曆 2.0
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>軟創一行事曆</title>
+<style>
+    body {
+        font-family: "Microsoft JhengHei", sans-serif;
+        background: #f4f6fb;
+        margin: 0;
+        padding: 30px;
+    }
+
+    /* 標題 */
+    h1 {
+        text-align: center;
+    }
+
+    /* 搜尋區 */
+    .search-box {
+        background: #dcdcdc;
+        padding: 20px;
+        border-radius: 10px;
+        margin-bottom: 20px;
+        text-align: center;
+    }
+
+    input {
+        padding: 10px;
+        width: 250px;
+        border-radius: 6px;
+        border: 1px solid #aaa;
+    }
+
+    /* 新增區 */
+    .form-area {
+        text-align: center;
+        margin-bottom: 20px;
+    }
+
+    .form-area input {
+        margin: 5px;
+    }
+
+    /* 按鈕 */
+    button {
+        padding: 10px 15px;
+        border: none;
+        border-radius: 6px;
+        background: #6c83d6;
+        color: white;
+        cursor: pointer;
+    }
+
+    button:hover {
+        background: #556bd1;
+    }
+
+    /* 表格 */
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        background: white;
+    }
+
+    th {
+        background: #7f95d6;
+        color: white;
+        padding: 12px;
+    }
+
+    td {
+        padding: 10px;
+        text-align: center;
+        border-bottom: 1px solid #ddd;
+    }
+
+    tr:hover {
+        background: #f1f3ff;
+    }
+
+    /* 倒數區 */
+    .countdown-box {
+        text-align: center;
+        margin: 20px auto;
+        padding: 15px;
+        background: white;
+        border-radius: 12px;
+        width: 300px;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    }
+
+    /* 沙漏 (真實比例耗盡版) */
+    .hourglass {
+        position: relative;
+        width: 50px;
+        height: 80px;
+        margin: 20px auto;
+        background: #e2e8f7; /* 玻璃的淡淡底色 */
+        /* 利用 clip-path 裁切出上下寬、中間窄的完美沙漏形狀 */
+        clip-path: polygon(0% 0%, 100% 0%, 55% 50%, 100% 100%, 0% 100%, 45% 50%);
+        overflow: hidden;
+    }
+
+    /* 落下中的沙柱 (中間細細的那條，只有 active 時才顯示) */
+    .hourglass.active::after {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 3px;
+        height: 50%;
+        /* ⭐ 修正：製作一粒一粒的沙子漸層，確保絕對的「向下流動」視覺 */
+        background: repeating-linear-gradient(to bottom, #e6c15a 0px, #e6c15a 4px, transparent 4px, transparent 8px);
+        background-size: 100% 8px;
+        animation: fallingSand 0.2s infinite linear;
+        z-index: 10;
+    }
+
+    /* 時間到時的翻轉動畫 */
+    .hourglass.finished {
+        animation: flipFinished 2s infinite ease-in-out;
+    }
+
+    /* 沙子共用屬性 */
+    .sand {
+        position: absolute;
+        width: 100%;
+        background: #e6c15a;
+        transition: height 1s linear; /* 讓每秒的高度變化平滑 */
+    }
+
+    /* 上半部的沙子 */
+    .top {
+        top: auto; /* 清除可能殘留的頂部定位 */
+        bottom: 50%; /* ⭐ 讓沙子貼齊沙漏最窄的「腰部」，這樣高度減少時，表面就會呈現「由上往下」降低 */
+        height: 50%; /* 預設滿載 */
+    }
+
+    /* 下半部的沙子 */
+    .bottom {
+        bottom: 0;
+        height: 0%; /* 預設空載 */
+    }
+
+    /* ⭐ 修正：正數的 Y 位移會將背景往下推，確保沙子往下流 */
+    @keyframes fallingSand {
+        0% { background-position: 0 0px; }
+        100% { background-position: 0 8px; } 
+    }
+
+    /* 時間到專用翻轉動畫 */
+    @keyframes flipFinished {
+        0% { transform: rotate(0deg); }
+        50% { transform: rotate(180deg); }
+        100% { transform: rotate(360deg); }
+    }
+</style>
+</head>
+
+<body>
+
+    <div class="countdown-box">
+        <h2 id="examTitle">最近考試：--</h2>
+        <div class="hourglass">
+            <div class="sand top"></div>
+            <div class="sand bottom"></div>
+        </div>
+        <h3 id="countdown">00天 00:00:00</h3>
+    </div>
+
+    <h1>📅 軟創一行事曆</h1>
+
+    <div class="search-box">
+        🔎 搜尋：
+        <input type="text" id="searchInput" placeholder="搜尋關鍵字 (日期/課程名稱)">
+    </div>
+
+    <div class="form-area">
+        <!-- ⭐ 修正：將 date 改為 datetime-local，讓您可以選擇精確的時間來測試快速落沙 -->
+        <input type="datetime-local" id="date">
+        <input type="text" id="course" placeholder="課程名稱">
+        <input type="text" id="event" placeholder="事項">
+        <input type="text" id="note" placeholder="備註">
+        <button onclick="addEvent()">新增</button>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>日期與時間</th>
+                <th>課程名稱</th>
+                <th>事項</th>
+                <th>備註</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody id="calendarBody">
+        </tbody>
+    </table>
+
+<script type="module">
+    // 引入 Firebase 雲端資料庫模組
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, collection, onSnapshot, addDoc, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    // 全域變數
+    let data = [];
+    let countdownTimer;
+
+    // Firebase 初始化與連線設定
+    const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+    let db, auth;
+    let currentUser = null;
+
+    if (firebaseConfig) {
+        const app = initializeApp(firebaseConfig);
+        auth = getAuth(app);
+        db = getFirestore(app);
+
+        const initAuth = async () => {
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                await signInWithCustomToken(auth, __initial_auth_token);
+            } else {
+                await signInAnonymously(auth);
+            }
+        };
+        initAuth();
+
+        // 監聽連線狀態，連線成功後開始抓取雲端資料
+        onAuthStateChanged(auth, (user) => {
+            currentUser = user;
+            if (user) {
+                setupRealtimeUpdates();
+            }
+        });
+    }
+
+    // ⭐ 監聽雲端資料庫的即時更新 (有人新增或刪除，這裡會立刻收到通知)
+    function setupRealtimeUpdates() {
+        if (!currentUser) return;
+        const eventsRef = collection(db, 'artifacts', appId, 'public', 'data', 'events');
+        
+        onSnapshot(eventsRef, (snapshot) => {
+            const newData = [];
+            snapshot.forEach((doc) => {
+                newData.push({ ...doc.data(), docId: doc.id });
+            });
+            data = newData; // 更新本地資料
+            refreshUI();    // 刷新畫面
+        }, (error) => {
+            console.error("雲端同步錯誤:", error);
+        });
+    }
+
+    // 畫面更新統整包
+    function refreshUI() {
+        const keyword = document.getElementById("searchInput").value.toLowerCase();
+        if (keyword) {
+            const filtered = data.filter(item =>
+                item.date.includes(keyword) ||
+                item.course.toLowerCase().includes(keyword)
+            );
+            renderTable(filtered);
+        } else {
+            renderTable(data);
+        }
+        startCountdown();
+    }
+
+    // 渲染表格
+    function renderTable(list) {
+        const tbody = document.getElementById("calendarBody");
+        tbody.innerHTML = "";
+
+        list.forEach((item) => {
+            const displayDate = item.date.replace('T', ' ');
+            const row = `
+            <tr>
+                <td>${displayDate}</td>
+                <td>${item.course}</td>
+                <td>${item.event}</td>
+                <td>${item.note}</td>
+                <td>
+                    <button onclick="window.deleteEvent('${item.docId}')">
+                        ❌ 刪除
+                    </button>
+                </td>
+            </tr>`;
+            tbody.innerHTML += row;
+        });
+    }
+
+    // ⭐ 新增事件 (寫入雲端)
+    window.addEvent = async function() {
+        if (!currentUser) {
+            alert("正在連線到雲端，請稍等一秒再試...");
+            return;
+        }
+
+        const dateInput = document.getElementById("date");
+        const courseInput = document.getElementById("course");
+        const eventInput = document.getElementById("event");
+        const noteInput = document.getElementById("note");
+
+        const date = dateInput.value;
+        const course = courseInput.value.trim();
+        const event = eventInput.value.trim();
+        const note = noteInput.value.trim();
+
+        if (date === "" || course === "") {
+            alert("請填寫日期時間與課程名稱");
+            return;
+        }
+
+        // 要傳到雲端的資料格式
+        const newEvent = {
+            createdAt: Date.now(),
+            date: date,
+            course: course,
+            event: event,
+            note: note
+        };
+
+        try {
+            const eventsRef = collection(db, 'artifacts', appId, 'public', 'data', 'events');
+            await addDoc(eventsRef, newEvent); // 🚀 送出至雲端
+            
+            // 清空欄位
+            dateInput.value = "";
+            courseInput.value = "";
+            eventInput.value = "";
+            noteInput.value = "";
+        } catch (error) {
+            console.error("新增失敗:", error);
+            alert("無法新增資料到雲端！");
+        }
+    }
+
+    // 搜尋功能
+    document.getElementById("searchInput")
+        .addEventListener("input", refreshUI);
+
+    // 找最近日期
+    function getNearestExam() {
+        const now = new Date();
+        const futureEvents = data
+            .map(e => ({ ...e, time: new Date(e.date) }))
+            .filter(e => e.time.getTime() + 60000 > now.getTime()); // 延遲 1 分鐘才淘汰
+
+        if (futureEvents.length === 0) return null;
+
+        futureEvents.sort((a, b) => a.time - b.time);
+        return futureEvents[0];
+    }
+
+    // 啟動倒數
+    function startCountdown() {
+        clearInterval(countdownTimer);
+
+        const exam = getNearestExam();
+        const topSand = document.querySelector('.sand.top');
+        const bottomSand = document.querySelector('.sand.bottom');
+        const hourglass = document.querySelector('.hourglass');
+
+        if (!exam) {
+            document.getElementById("examTitle").innerText = "沒有未來考試";
+            document.getElementById("countdown").innerText = "00天 00:00:00";
+            topSand.style.height = "0%";
+            bottomSand.style.height = "0%";
+            hourglass.classList.remove('active');
+            hourglass.classList.remove('finished');
+            return;
+        }
+
+        document.getElementById("examTitle")
+            .innerText = `最近考試：${exam.course} - ${exam.event}`;
+
+        hourglass.classList.remove('finished'); 
+
+        countdownTimer = setInterval(() => {
+            const now = new Date();
+            const target = new Date(exam.date);
+            const diff = target - now;
+
+            if (diff <= 0) {
+                // 如果已經超過結束時間 1 分鐘，就自動尋找並切換下一個考試
+                if (now.getTime() - target.getTime() >= 60000) {
+                    startCountdown(); 
+                    return;
+                }
+
+                document.getElementById("countdown").innerText = "考試時間到！";
+                topSand.style.height = "0%";
+                bottomSand.style.height = "50%";
+                hourglass.classList.remove('active');
+                hourglass.classList.add('finished');
+                return;
+            }
+
+            // 計算剩餘時間比例
+            const totalDuration = target.getTime() - exam.createdAt;
+            let pct = totalDuration > 0 ? diff / totalDuration : 1;
+            if (pct > 1) pct = 1;
+            if (pct < 0) pct = 0;
+
+            topSand.style.height = `${pct * 50}%`;
+            bottomSand.style.height = `${(1 - pct) * 50}%`;
+            hourglass.classList.add('active');
+
+            const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+            const hours = Math.floor(diff / (1000 * 60 * 60) % 24);
+            const mins = Math.floor(diff / (1000 * 60) % 60);
+            const secs = Math.floor(diff / 1000 % 60);
+
+            document.getElementById("countdown").innerText =
+                `${days}天 ${hours.toString().padStart(2, '0')}:` +
+                `${mins.toString().padStart(2, '0')}:` +
+                `${secs.toString().padStart(2, '0')}`;
+        }, 1000);
+    }
+
+    // ⭐ 刪除事件 (從雲端刪除)
+    window.deleteEvent = async function(docId) {
+        if (!confirm("確定要刪除這筆事項嗎？")) return;
+        if (!currentUser) return;
+        
+        try {
+            const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'events', docId);
+            await deleteDoc(docRef); // 🚀 從雲端抹除
+        } catch (error) {
+            console.error("刪除失敗:", error);
+            alert("無法從雲端刪除資料！");
+        }
+    }
+
+    // 初始載入執行 (啟動基本空畫面，等待雲端資料灌入)
+    refreshUI();
+
+</script>
+</body>
+</html>
