@@ -1,5 +1,3 @@
-# index.html
-行事曆 2.0
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -18,6 +16,17 @@
     h1 {
         text-align: center;
     }
+
+    /* 雲端狀態提示 */
+    #cloudStatus {
+        text-align: center;
+        font-size: 14px;
+        margin-top: -10px;
+        margin-bottom: 20px;
+        color: #888;
+    }
+    .status-local { color: #d97706 !important; }
+    .status-cloud { color: #16a34a !important; }
 
     /* 搜尋區 */
     .search-box {
@@ -99,13 +108,11 @@
         width: 50px;
         height: 80px;
         margin: 20px auto;
-        background: #e2e8f7; /* 玻璃的淡淡底色 */
-        /* 利用 clip-path 裁切出上下寬、中間窄的完美沙漏形狀 */
+        background: #e2e8f7;
         clip-path: polygon(0% 0%, 100% 0%, 55% 50%, 100% 100%, 0% 100%, 45% 50%);
         overflow: hidden;
     }
 
-    /* 落下中的沙柱 (中間細細的那條，只有 active 時才顯示) */
     .hourglass.active::after {
         content: '';
         position: absolute;
@@ -114,46 +121,39 @@
         transform: translateX(-50%);
         width: 3px;
         height: 50%;
-        /* ⭐ 修正：製作一粒一粒的沙子漸層，確保絕對的「向下流動」視覺 */
         background: repeating-linear-gradient(to bottom, #e6c15a 0px, #e6c15a 4px, transparent 4px, transparent 8px);
         background-size: 100% 8px;
         animation: fallingSand 0.2s infinite linear;
         z-index: 10;
     }
 
-    /* 時間到時的翻轉動畫 */
     .hourglass.finished {
         animation: flipFinished 2s infinite ease-in-out;
     }
 
-    /* 沙子共用屬性 */
     .sand {
         position: absolute;
         width: 100%;
         background: #e6c15a;
-        transition: height 1s linear; /* 讓每秒的高度變化平滑 */
+        transition: height 1s linear;
     }
 
-    /* 上半部的沙子 */
     .top {
-        top: auto; /* 清除可能殘留的頂部定位 */
-        bottom: 50%; /* ⭐ 讓沙子貼齊沙漏最窄的「腰部」，這樣高度減少時，表面就會呈現「由上往下」降低 */
-        height: 50%; /* 預設滿載 */
+        top: auto;
+        bottom: 50%;
+        height: 50%;
     }
 
-    /* 下半部的沙子 */
     .bottom {
         bottom: 0;
-        height: 0%; /* 預設空載 */
+        height: 0%;
     }
 
-    /* ⭐ 修正：正數的 Y 位移會將背景往下推，確保沙子往下流 */
     @keyframes fallingSand {
         0% { background-position: 0 0px; }
         100% { background-position: 0 8px; } 
     }
 
-    /* 時間到專用翻轉動畫 */
     @keyframes flipFinished {
         0% { transform: rotate(0deg); }
         50% { transform: rotate(180deg); }
@@ -174,6 +174,9 @@
     </div>
 
     <h1>📅 軟創一行事曆</h1>
+    
+    <!-- 顯示目前的連線模式 -->
+    <div id="cloudStatus">偵測環境中...</div>
 
     <div class="search-box">
         🔎 搜尋：
@@ -181,7 +184,6 @@
     </div>
 
     <div class="form-area">
-        <!-- ⭐ 修正：將 date 改為 datetime-local，讓您可以選擇精確的時間來測試快速落沙 -->
         <input type="datetime-local" id="date">
         <input type="text" id="course" placeholder="課程名稱">
         <input type="text" id="event" placeholder="事項">
@@ -204,45 +206,73 @@
     </table>
 
 <script type="module">
-    // 引入 Firebase 雲端資料庫模組
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, collection, onSnapshot, addDoc, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    // 🌟 【自訂雲端金鑰區】 🌟
+    // 如果您未來想在 GitHub Pages 啟用「多人共用」，請到 firebase.google.com 免費註冊，
+    // 並將取得的設定檔取代下方的 null，例如： { apiKey: "xxx", authDomain: "xxx", ... }
+    const myFirebaseConfig = null; 
+
+    // 環境變數 (處理 Canvas 與 GitHub Pages 的差異)
+    const envFirebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+    const firebaseConfig = myFirebaseConfig || envFirebaseConfig;
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'my-github-calendar';
 
     // 全域變數
     let data = [];
     let countdownTimer;
-
-    // Firebase 初始化與連線設定
-    const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
-    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+    let isCloudMode = false;
     let db, auth;
     let currentUser = null;
 
+    // 系統初始化邏輯 (智慧判斷)
     if (firebaseConfig) {
+        // 模式 1：有金鑰，啟用雲端模式
+        isCloudMode = true;
+        document.getElementById("cloudStatus").innerHTML = "🟢 目前為：雲端共用模式";
+        document.getElementById("cloudStatus").className = "status-cloud";
+
         const app = initializeApp(firebaseConfig);
         auth = getAuth(app);
         db = getFirestore(app);
 
         const initAuth = async () => {
-            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                await signInWithCustomToken(auth, __initial_auth_token);
-            } else {
-                await signInAnonymously(auth);
+            try {
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("登入失敗，切換回單機模式", error);
+                fallbackToLocal();
             }
         };
         initAuth();
 
-        // 監聽連線狀態，連線成功後開始抓取雲端資料
         onAuthStateChanged(auth, (user) => {
             currentUser = user;
-            if (user) {
-                setupRealtimeUpdates();
-            }
+            if (user) setupRealtimeUpdates();
         });
+
+    } else {
+        // 模式 2：沒有金鑰 (例如放在 GitHub Pages 上)，啟動單機模式
+        fallbackToLocal();
     }
 
-    // ⭐ 監聽雲端資料庫的即時更新 (有人新增或刪除，這裡會立刻收到通知)
+    function fallbackToLocal() {
+        isCloudMode = false;
+        document.getElementById("cloudStatus").innerHTML = "🟠 目前為：單機儲存模式 (僅儲存於本機)";
+        document.getElementById("cloudStatus").className = "status-local";
+        
+        const saved = localStorage.getItem("calendarData");
+        data = saved ? JSON.parse(saved) : [];
+        refreshUI();
+    }
+
+    // 監聽雲端資料庫的即時更新 (僅限雲端模式)
     function setupRealtimeUpdates() {
         if (!currentUser) return;
         const eventsRef = collection(db, 'artifacts', appId, 'public', 'data', 'events');
@@ -250,12 +280,13 @@
         onSnapshot(eventsRef, (snapshot) => {
             const newData = [];
             snapshot.forEach((doc) => {
-                newData.push({ ...doc.data(), docId: doc.id });
+                newData.push({ ...doc.data() });
             });
-            data = newData; // 更新本地資料
-            refreshUI();    // 刷新畫面
+            data = newData;
+            refreshUI();
         }, (error) => {
             console.error("雲端同步錯誤:", error);
+            fallbackToLocal(); // 出錯時安全降級
         });
     }
 
@@ -288,7 +319,7 @@
                 <td>${item.event}</td>
                 <td>${item.note}</td>
                 <td>
-                    <button onclick="window.deleteEvent('${item.docId}')">
+                    <button onclick="window.deleteEvent('${item.id}')">
                         ❌ 刪除
                     </button>
                 </td>
@@ -297,13 +328,8 @@
         });
     }
 
-    // ⭐ 新增事件 (寫入雲端)
+    // 新增事件 (智慧分流寫入)
     window.addEvent = async function() {
-        if (!currentUser) {
-            alert("正在連線到雲端，請稍等一秒再試...");
-            return;
-        }
-
         const dateInput = document.getElementById("date");
         const courseInput = document.getElementById("course");
         const eventInput = document.getElementById("event");
@@ -319,8 +345,9 @@
             return;
         }
 
-        // 要傳到雲端的資料格式
+        const newEventId = Date.now().toString() + Math.random().toString(36).substr(2, 5);
         const newEvent = {
+            id: newEventId,
             createdAt: Date.now(),
             date: date,
             course: course,
@@ -328,24 +355,31 @@
             note: note
         };
 
-        try {
-            const eventsRef = collection(db, 'artifacts', appId, 'public', 'data', 'events');
-            await addDoc(eventsRef, newEvent); // 🚀 送出至雲端
-            
-            // 清空欄位
-            dateInput.value = "";
-            courseInput.value = "";
-            eventInput.value = "";
-            noteInput.value = "";
-        } catch (error) {
-            console.error("新增失敗:", error);
-            alert("無法新增資料到雲端！");
+        if (isCloudMode && currentUser) {
+            // 寫入雲端
+            try {
+                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'events', newEventId);
+                await setDoc(docRef, newEvent);
+            } catch (error) {
+                console.error("雲端新增失敗:", error);
+                alert("無法新增資料到雲端！");
+            }
+        } else {
+            // 寫入單機 LocalStorage
+            data.push(newEvent);
+            localStorage.setItem("calendarData", JSON.stringify(data));
+            refreshUI();
         }
+
+        // 清空欄位
+        dateInput.value = "";
+        courseInput.value = "";
+        eventInput.value = "";
+        noteInput.value = "";
     }
 
     // 搜尋功能
-    document.getElementById("searchInput")
-        .addEventListener("input", refreshUI);
+    document.getElementById("searchInput").addEventListener("input", refreshUI);
 
     // 找最近日期
     function getNearestExam() {
@@ -379,9 +413,7 @@
             return;
         }
 
-        document.getElementById("examTitle")
-            .innerText = `最近考試：${exam.course} - ${exam.event}`;
-
+        document.getElementById("examTitle").innerText = `最近考試：${exam.course} - ${exam.event}`;
         hourglass.classList.remove('finished'); 
 
         countdownTimer = setInterval(() => {
@@ -390,12 +422,10 @@
             const diff = target - now;
 
             if (diff <= 0) {
-                // 如果已經超過結束時間 1 分鐘，就自動尋找並切換下一個考試
                 if (now.getTime() - target.getTime() >= 60000) {
                     startCountdown(); 
                     return;
                 }
-
                 document.getElementById("countdown").innerText = "考試時間到！";
                 topSand.style.height = "0%";
                 bottomSand.style.height = "50%";
@@ -404,7 +434,6 @@
                 return;
             }
 
-            // 計算剩餘時間比例
             const totalDuration = target.getTime() - exam.createdAt;
             let pct = totalDuration > 0 ? diff / totalDuration : 1;
             if (pct > 1) pct = 1;
@@ -426,22 +455,25 @@
         }, 1000);
     }
 
-    // ⭐ 刪除事件 (從雲端刪除)
-    window.deleteEvent = async function(docId) {
+    // 刪除事件 (智慧分流刪除)
+    window.deleteEvent = async function(id) {
         if (!confirm("確定要刪除這筆事項嗎？")) return;
-        if (!currentUser) return;
         
-        try {
-            const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'events', docId);
-            await deleteDoc(docRef); // 🚀 從雲端抹除
-        } catch (error) {
-            console.error("刪除失敗:", error);
-            alert("無法從雲端刪除資料！");
+        if (isCloudMode && currentUser) {
+            try {
+                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'events', id);
+                await deleteDoc(docRef);
+            } catch (error) {
+                console.error("雲端刪除失敗:", error);
+                alert("無法從雲端刪除資料！");
+            }
+        } else {
+            // 單機刪除
+            data = data.filter(item => item.id !== id);
+            localStorage.setItem("calendarData", JSON.stringify(data));
+            refreshUI();
         }
     }
-
-    // 初始載入執行 (啟動基本空畫面，等待雲端資料灌入)
-    refreshUI();
 
 </script>
 </body>
