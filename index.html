@@ -213,7 +213,15 @@
     // 🌟 【自訂雲端金鑰區】 🌟
     // 如果您未來想在 GitHub Pages 啟用「多人共用」，請到 firebase.google.com 免費註冊，
     // 並將取得的設定檔取代下方的 null，例如： { apiKey: "xxx", authDomain: "xxx", ... }
-    const myFirebaseConfig = null; 
+    const firebaseConfig = {
+    apiKey: "AIzaSyAAGpDcSPznoavs6_xm5FWDNCpMeJ3VXX4",
+    authDomain: "calendar-99632.firebaseapp.com",
+    projectId: "calendar-99632",
+    storageBucket: "calendar-99632.firebasestorage.app",
+    messagingSenderId: "864031400093",
+    appId: "1:864031400093:web:44ddcd4f857f9b75457474",
+    measurementId: "G-ZKH8YYR77Z"
+    }; 
 
     // 環境變數 (處理 Canvas 與 GitHub Pages 的差異)
     const envFirebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
