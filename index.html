@@ -27,6 +27,7 @@
     }
     .status-local { color: #d97706 !important; }
     .status-cloud { color: #16a34a !important; }
+    .status-error { color: #dc2626 !important; } /* 新增錯誤狀態顏色 */
 
     /* 搜尋區 */
     .search-box {
@@ -221,67 +222,81 @@
         measurementId: "G-ZKH8YYR77Z"
     }; 
 
-    // 環境變數 (處理 Canvas 與 GitHub Pages 的差異)
     const envFirebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
-    
     const activeFirebaseConfig = myFirebaseConfig || envFirebaseConfig;
     const appId = typeof __app_id !== 'undefined' ? __app_id : 'my-github-calendar';
-    const isUsingCustomConfig = myFirebaseConfig !== null; // 判斷是否使用自訂金鑰
+    const isUsingCustomConfig = myFirebaseConfig !== null;
 
-    // 全域變數
     let data = [];
     let countdownTimer;
     let isCloudMode = false;
     let db, auth;
     let currentUser = null;
 
-    // 系統初始化邏輯 (智慧判斷)
-    if (activeFirebaseConfig) { 
-        // 模式 1：有金鑰，啟用雲端模式
-        isCloudMode = true;
-        document.getElementById("cloudStatus").innerHTML = "🟢 目前為：雲端共用模式";
-        document.getElementById("cloudStatus").className = "status-cloud";
+    // ⭐ 系統初始化邏輯 (加入全面性的 Try-Catch 防護罩)
+    try {
+        if (activeFirebaseConfig) { 
+            isCloudMode = true;
+            document.getElementById("cloudStatus").innerHTML = "🟢 目前為：雲端共用模式 (連線中...)";
+            document.getElementById("cloudStatus").className = "status-cloud";
 
-        const app = initializeApp(activeFirebaseConfig); 
-        auth = getAuth(app);
-        db = getFirestore(app);
+            // 在無痕模式下，這兩行可能因為無法存取隱私權限而報錯當機，所以用 try 包起來
+            const app = initializeApp(activeFirebaseConfig); 
+            auth = getAuth(app);
+            db = getFirestore(app);
 
-        const initAuth = async () => {
-            try {
-                // 如果是使用 Canvas 內建環境才用 CustomToken，如果是自訂金鑰則一律使用匿名登入
-                if (!isUsingCustomConfig && typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    await signInAnonymously(auth);
+            const initAuth = async () => {
+                try {
+                    if (!isUsingCustomConfig && typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                } catch (error) {
+                    console.error("登入失敗，切換回單機模式:", error);
+                    fallbackToLocal();
                 }
-            } catch (error) {
-                console.error("登入失敗，切換回單機模式", error);
-                fallbackToLocal();
-            }
-        };
-        initAuth();
+            };
+            initAuth();
 
-        onAuthStateChanged(auth, (user) => {
-            currentUser = user;
-            if (user) setupRealtimeUpdates();
-        });
+            onAuthStateChanged(auth, (user) => {
+                currentUser = user;
+                if (user) {
+                    document.getElementById("cloudStatus").innerHTML = "🟢 目前為：雲端共用模式";
+                    setupRealtimeUpdates();
+                }
+            });
 
-    } else {
-        // 模式 2：沒有金鑰 (例如放在 GitHub Pages 上)，啟動單機模式
-        fallbackToLocal();
+        } else {
+            fallbackToLocal();
+        }
+    } catch (criticalError) {
+        // 攔截所有嚴重的環境錯誤 (如 Line 內建瀏覽器阻擋 IndexedDB 等)
+        console.error("Firebase 初始化遭遇環境限制:", criticalError);
+        fallbackToLocal(); 
     }
 
+    // 降級為單機模式 (同樣加上防護，防止 LocalStorage 被阻擋而當機)
     function fallbackToLocal() {
         isCloudMode = false;
-        document.getElementById("cloudStatus").innerHTML = "🟠 目前為：單機儲存模式 (僅儲存於本機)";
-        document.getElementById("cloudStatus").className = "status-local";
+        const statusEl = document.getElementById("cloudStatus");
         
-        const saved = localStorage.getItem("calendarData");
-        data = saved ? JSON.parse(saved) : [];
+        try {
+            const saved = localStorage.getItem("calendarData");
+            data = saved ? JSON.parse(saved) : [];
+            statusEl.innerHTML = "🟠 目前為：單機儲存模式 (僅儲存於本機)";
+            statusEl.className = "status-local";
+        } catch (storageError) {
+            // 在極度嚴格的無痕模式中，連 LocalStorage 都不能讀
+            console.error("本機儲存空間被阻擋:", storageError);
+            data = [];
+            statusEl.innerHTML = "🔴 瀏覽器隱私限制過高 (無法永久儲存資料)";
+            statusEl.className = "status-error";
+        }
         refreshUI();
     }
 
-    // 監聽雲端資料庫的即時更新 (僅限雲端模式)
+    // 監聽雲端資料庫的即時更新
     function setupRealtimeUpdates() {
         if (!currentUser) return;
         const eventsRef = collection(db, 'artifacts', appId, 'public', 'data', 'events');
@@ -295,7 +310,7 @@
             refreshUI();
         }, (error) => {
             console.error("雲端同步錯誤:", error);
-            fallbackToLocal(); // 出錯時安全降級
+            fallbackToLocal();
         });
     }
 
@@ -337,7 +352,7 @@
         });
     }
 
-    // 新增事件 (智慧分流寫入)
+    // 新增事件 (加上寫入防護)
     window.addEvent = async function() {
         const dateInput = document.getElementById("date");
         const courseInput = document.getElementById("course");
@@ -365,7 +380,6 @@
         };
 
         if (isCloudMode && currentUser) {
-            // 寫入雲端
             try {
                 const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'events', newEventId);
                 await setDoc(docRef, newEvent);
@@ -374,13 +388,15 @@
                 alert("無法新增資料到雲端！");
             }
         } else {
-            // 寫入單機 LocalStorage
             data.push(newEvent);
-            localStorage.setItem("calendarData", JSON.stringify(data));
+            try {
+                localStorage.setItem("calendarData", JSON.stringify(data));
+            } catch (storageError) {
+                alert("因您使用無痕模式或APP內建瀏覽器，這筆資料關閉視窗後將會消失喔！");
+            }
             refreshUI();
         }
 
-        // 清空欄位
         dateInput.value = "";
         courseInput.value = "";
         eventInput.value = "";
@@ -395,10 +411,9 @@
         const now = new Date();
         const futureEvents = data
             .map(e => ({ ...e, time: new Date(e.date) }))
-            .filter(e => e.time.getTime() + 60000 > now.getTime()); // 延遲 1 分鐘才淘汰
+            .filter(e => e.time.getTime() + 60000 > now.getTime());
 
         if (futureEvents.length === 0) return null;
-
         futureEvents.sort((a, b) => a.time - b.time);
         return futureEvents[0];
     }
@@ -464,7 +479,7 @@
         }, 1000);
     }
 
-    // 刪除事件 (智慧分流刪除)
+    // 刪除事件
     window.deleteEvent = async function(id) {
         if (!confirm("確定要刪除這筆事項嗎？")) return;
         
@@ -477,9 +492,12 @@
                 alert("無法從雲端刪除資料！");
             }
         } else {
-            // 單機刪除
             data = data.filter(item => item.id !== id);
-            localStorage.setItem("calendarData", JSON.stringify(data));
+            try {
+                localStorage.setItem("calendarData", JSON.stringify(data));
+            } catch (e) {
+                // Ignore storage error
+            }
             refreshUI();
         }
     }
